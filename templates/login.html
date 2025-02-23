@@ -37,49 +37,27 @@
         margin-bottom: 1.5rem;
       }
 
-      .login-form {
-        display: flex;
-        flex-direction: column;
-        gap: 1rem;
-        width: 300px;
-      }
-
-      input {
-        padding: 0.75rem;
-        font-size: 1rem;
-        border: 1px solid var(--border-color);
+      .google-btn {
+        display: inline-block;
+        background-color: #4285f4;
+        color: #fff;
+        padding: 0.75rem 1.5rem;
         border-radius: 4px;
-      }
-
-      button {
-        padding: 0.75rem;
+        text-decoration: none;
         font-size: 1rem;
-        background-color: var(--primary-color);
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
+        font-weight: bold;
         transition: background-color 0.3s ease;
       }
 
-      button:hover {
-        background-color: #3a7bc8;
+      .google-btn:hover {
+        background-color: #357ae8;
       }
     </style>
   </head>
   <body>
     <div class="login-container">
       <h1>Welcome to Customer Service Chat</h1>
-      <form class="login-form" action="/login" method="POST">
-        <input
-          type="text"
-          name="username"
-          placeholder="Enter username"
-          value="{{ .Username }}"
-          required
-        />
-        <button type="submit">Join Chat</button>
-      </form>
+      <a href="/auth/google" class="google-btn">Sign in with Google</a>
     </div>
   </body>
 </html>

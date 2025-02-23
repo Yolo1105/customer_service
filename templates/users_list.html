@@ -25,22 +25,16 @@
     color: white;
   }
 
-  .user-avatar {
+  .user-item.active .user-pic {
+    border-color: white;
+  }
+
+  .user-pic {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background-color: #ddd;
     margin-right: 0.75rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: bold;
-    color: #666;
-  }
-
-  .user-item.active .user-avatar {
-    background-color: white;
-    color: var(--primary-color);
+    border: 2px solid #ddd;
   }
 
   .user-status {
@@ -50,15 +44,89 @@
     margin-left: auto;
     background-color: #4caf50;
   }
+
+  .self-section {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 1rem;
+  }
+  .self-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
 </style>
 
-<ul class="user-list">
-  {{ range .Users }}
-  <li class="user-item" onclick="selectUser('{{ . }}')">
-    <div class="user-avatar">{{ slice . 0 1 }}</div>
-    <span>{{ . }}</span>
-    <div class="user-status"></div>
-  </li>
+<div class="online-users">
+  {{ if .Self }}
+  <div class="self-section">
+    <h4>Me</h4>
+    <div class="self-item">
+      <img
+        class="user-pic"
+        src="{{ (index .Self 0).picture }}"
+        alt="{{ (index .Self 0).name }}"
+      />
+      <span>{{ (index .Self 0).name }}</span>
+    </div>
+  </div>
   {{ end }}
-</ul>
+
+  <h4>Online Users</h4>
+  <ul class="user-list">
+    {{ range .Others }}
+    <li
+      class="user-item"
+      data-id="{{ .id }}"
+      onclick="selectUser('{{ .id }}', '{{ .name }}')"
+    >
+      <img class="user-pic" src="{{ .picture }}" alt="{{ .name }}" />
+      <span>{{ .name }}</span>
+      <div class="user-status"></div>
+    </li>
+    {{ end }}
+  </ul>
+</div>
+
+<script>
+  // Fetch the user list and display names
+  document.addEventListener("DOMContentLoaded", function () {
+    fetch("/users")
+      .then((response) => response.json())
+      .then((users) => {
+        const userList = document.getElementById("user-list");
+        userList.innerHTML = ""; // Clear any existing content
+        users.forEach((user) => {
+          const li = document.createElement("li");
+          li.textContent = user.name;
+          li.className = "user-item";
+          li.dataset.id = user.id;
+          li.onclick = () => selectUser(user.id, user.name);
+          userList.appendChild(li);
+        });
+      });
+  });
+
+  // WebSocket for user-list updates
+  const userListSocket = new WebSocket("ws://" + window.location.host + "/ws");
+  userListSocket.addEventListener("message", function (event) {
+    if (event.data === "users-update") {
+      // Reload the user list
+      fetch("/users")
+        .then((response) => response.json())
+        .then((users) => {
+          const userList = document.getElementById("user-list");
+          userList.innerHTML = "";
+          users.forEach((user) => {
+            const li = document.createElement("li");
+            li.textContent = user.name;
+            li.className = "user-item";
+            li.dataset.id = user.id;
+            li.onclick = () => selectUser(user.id, user.name);
+            userList.appendChild(li);
+          });
+        });
+    }
+  });
+</script>
 {{ end }}

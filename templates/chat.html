@@ -7,6 +7,16 @@
     <title>Customer Service Chat</title>
     <script src="https://unpkg.com/htmx.org@1.9.6"></script>
     <style>
+      #message-input:disabled {
+        background-color: #f0f0f0;
+        cursor: not-allowed;
+      }
+
+      #message-form button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+
       :root {
         --primary-color: #4a90e2;
         --secondary-color: #f5f5f5;
@@ -53,6 +63,20 @@
         color: white;
       }
 
+      .message img {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        margin-right: 0.5rem;
+        flex-shrink: 0;
+      }
+
+      .message.sent img {
+        order: 1;
+        margin-left: 0.5rem;
+        margin-right: 0;
+      }
+
       .messages {
         flex-grow: 1;
         overflow-y: auto;
@@ -62,11 +86,31 @@
       }
 
       .message {
+        display: flex;
+        align-items: center;
         max-width: 80%;
         margin-bottom: 1rem;
         padding: 0.75rem 1rem;
         border-radius: 20px;
         animation: fadeIn 0.3s ease-out;
+      }
+
+      .message img {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        margin-right: 0.5rem;
+      }
+
+      .message.sent {
+        align-self: flex-end;
+        background-color: var(--primary-color);
+        color: white;
+      }
+
+      .message.received {
+        align-self: flex-start;
+        background-color: var(--secondary-color);
       }
 
       @keyframes fadeIn {
@@ -78,17 +122,6 @@
           opacity: 1;
           transform: translateY(0);
         }
-      }
-
-      .message.received {
-        align-self: flex-start;
-        background-color: var(--secondary-color);
-      }
-
-      .message.sent {
-        align-self: flex-end;
-        background-color: var(--primary-color);
-        color: white;
       }
 
       .input-form {
@@ -119,27 +152,6 @@
         background-color: #3a7bc8;
       }
 
-      .user-list {
-        list-style: none;
-        padding: 0;
-      }
-
-      .user-item {
-        padding: 0.75rem;
-        cursor: pointer;
-        border-radius: 8px;
-        transition: background-color 0.3s ease;
-      }
-
-      .user-item:hover {
-        background-color: #e8e8e8;
-      }
-
-      .user-item.active {
-        background-color: var(--primary-color);
-        color: white;
-      }
-
       .logout-btn {
         margin-top: 1rem;
         width: 100%;
@@ -161,7 +173,13 @@
     <div class="app-container">
       <div class="users-panel">
         <h2>Online Users</h2>
-        <div id="users-list" hx-get="/users" hx-trigger="load, every 10s">
+        <!-- Modified HTMX config: add delay and innerHTML swap -->
+        <div
+          id="users-list"
+          hx-get="/users"
+          hx-trigger="load delay:100ms, every 10s"
+          hx-swap="innerHTML"
+        >
           {{ template "users_list.html" . }}
         </div>
         <form action="/logout" method="POST">
@@ -193,55 +211,161 @@
     <script>
       let ws = null;
       let currentPartner = null;
+      let partnerName = null;
       const username = "{{ .Username }}";
+      let messageHistory = {};
 
-      function connectWebSocket(partner) {
-        if (ws) {
-          ws.close();
-        }
+      // Improved WebSocket handling
+      function connectWebSocket() {
+        // Prevent duplicate connections
+        if (ws) return;
 
         ws = new WebSocket(`ws://${window.location.host}/ws`);
 
-        ws.onmessage = function (event) {
-          const msg = JSON.parse(event.data);
-          if (msg.from === currentPartner) {
-            const messageDiv = document.createElement("div");
-            messageDiv.className = "message received";
-            messageDiv.textContent = `${msg.from}: ${msg.content}`;
-            document.getElementById("messages").appendChild(messageDiv);
-            messageDiv.scrollIntoView({ behavior: "smooth" });
-          } else {
-            console.log(`New message from ${msg.from} (not current partner)`);
-            // Optional: Add a notification for messages from other users
-          }
-        };
-
         ws.onopen = function () {
+          console.log("WebSocket connected!");
+          // Refresh user list after connection
+          htmx.trigger("#users-list", "load");
+
+          // Enable the message form
           document.getElementById("message-input").disabled = false;
           document
             .getElementById("message-form")
             .querySelector("button").disabled = false;
         };
 
-        ws.onclose = function () {
+        // Reconnection logic
+        ws.onclose = function (e) {
+          console.log("WebSocket disconnected, reconnecting...", e.reason);
           document.getElementById("message-input").disabled = true;
           document
             .getElementById("message-form")
             .querySelector("button").disabled = true;
+          setTimeout(() => connectWebSocket(), 3000);
+        };
+
+        ws.onerror = function (error) {
+          console.error("WebSocket Error:", error);
+        };
+
+        ws.onmessage = function (event) {
+          const msg = JSON.parse(event.data);
+          addReceivedMessage(
+            msg.fromId,
+            msg.fromName,
+            msg.fromPicture,
+            msg.content
+          );
         };
       }
 
-      function selectUser(partner) {
-        currentPartner = partner;
-        document.getElementById("chat-partner").textContent = partner;
-        document.getElementById("messages").innerHTML = "";
-        document.querySelectorAll(".user-item").forEach((el) => {
-          el.classList.remove("active");
-          if (el.textContent === partner) {
-            el.classList.add("active");
-          }
+      // Initialize WebSocket with a small delay for HTMX
+      window.addEventListener("load", () => {
+        connectWebSocket();
+        setTimeout(() => htmx.process(document.body), 500);
+      });
+
+      function selectUser(id, name) {
+        currentPartner = id;
+        partnerName = name;
+        document.getElementById("chat-partner").textContent = name;
+
+        // Show any existing chat history with this user
+        const messagesDiv = document.getElementById("messages");
+        messagesDiv.innerHTML = "";
+        if (messageHistory[id]) {
+          messageHistory[id].forEach((msg) => {
+            const messageDiv = document.createElement("div");
+            messageDiv.className = `message ${msg.type}`;
+            if (msg.type === "received") {
+              // If it was a received message, show fromName
+              const img = document.createElement("img");
+              img.src = msg.fromPicture || "";
+              img.alt = msg.fromName;
+              messageDiv.appendChild(img);
+
+              const text = document.createTextNode(
+                `${msg.fromName}: ${msg.content}`
+              );
+              messageDiv.appendChild(text);
+            } else {
+              // Sent message
+              const img = document.createElement("img");
+              img.src = "{{ .UserPicture }}";
+              img.alt = "You";
+              messageDiv.appendChild(img);
+
+              const text = document.createTextNode(`You: ${msg.content}`);
+              messageDiv.appendChild(text);
+            }
+            messagesDiv.appendChild(messageDiv);
+          });
+          messagesDiv.lastElementChild?.scrollIntoView({ behavior: "smooth" });
+        }
+
+        // Update input/button state in case the WebSocket is open
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          document.getElementById("message-input").disabled = false;
+          document
+            .getElementById("message-form")
+            .querySelector("button").disabled = false;
+        }
+      }
+
+      function addSentMessage(partnerId, content) {
+        if (!messageHistory[partnerId]) {
+          messageHistory[partnerId] = [];
+        }
+
+        const messagesDiv = document.getElementById("messages");
+        const messageDiv = document.createElement("div");
+        messageDiv.className = "message sent";
+
+        const img = document.createElement("img");
+        img.src = "{{ .UserPicture }}";
+        img.alt = "You";
+        messageDiv.appendChild(img);
+
+        const text = document.createTextNode(`You: ${content}`);
+        messageDiv.appendChild(text);
+
+        messagesDiv.appendChild(messageDiv);
+        messageDiv.scrollIntoView({ behavior: "smooth" });
+
+        messageHistory[partnerId].push({
+          type: "sent",
+          fromId: "self",
+          fromName: username,
+          content: content,
         });
-        connectWebSocket(partner);
+      }
+
+      function addReceivedMessage(fromId, fromName, fromPicture, content) {
+        const messagesDiv = document.getElementById("messages");
+        const messageDiv = document.createElement("div");
+        messageDiv.className = "message received";
+
+        const img = document.createElement("img");
+        img.src = fromPicture;
+        img.alt = fromName;
+        messageDiv.appendChild(img);
+
+        const text = document.createTextNode(`${fromName}: ${content}`);
+        messageDiv.appendChild(text);
+
+        messagesDiv.appendChild(messageDiv);
+        messageDiv.scrollIntoView({ behavior: "smooth" });
+
+        if (!messageHistory[fromId]) {
+          messageHistory[fromId] = [];
+        }
+        messageHistory[fromId].push({
+          type: "received",
+          fromId,
+          fromName,
+          fromPicture,
+          content,
+        });
       }
 
       function sendMessage(event) {
@@ -253,15 +377,9 @@
           to: currentPartner,
           content: input.value,
         };
-
         ws.send(JSON.stringify(message));
 
-        const messageDiv = document.createElement("div");
-        messageDiv.className = "message sent";
-        messageDiv.textContent = `${username}: ${message.content}`;
-        document.getElementById("messages").appendChild(messageDiv);
-        messageDiv.scrollIntoView({ behavior: "smooth" });
-
+        addSentMessage(currentPartner, input.value);
         input.value = "";
         return false;
       }
