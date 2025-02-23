@@ -1,0 +1,150 @@
+{{ define "chat_window.html" }}
+<div class="chat-window">
+  <div class="chat-header">
+    <h3>Chat with {{ .Partner }}</h3>
+  </div>
+  <div
+    id="messages"
+    class="messages"
+    hx-ws="connect:/ws?partner={{ .Partner }}"
+    hx-swap="beforeend"
+  ></div>
+  <form class="message-form" onsubmit="sendMessage(event)">
+    <input
+      type="text"
+      id="msgInput"
+      placeholder="Type a message"
+      autocomplete="off"
+      required
+    />
+    <button type="submit">Send</button>
+  </form>
+</div>
+
+<style>
+  .chat-window {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .chat-header {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 1rem;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+  }
+
+  .chat-header h3 {
+    margin: 0;
+  }
+
+  .messages {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .message {
+    max-width: 80%;
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: 20px;
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .message.received {
+    align-self: flex-start;
+    background-color: var(--secondary-color);
+  }
+
+  .message.sent {
+    align-self: flex-end;
+    background-color: var(--primary-color);
+    color: white;
+  }
+
+  .message-form {
+    display: flex;
+    padding: 1rem;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .message-form input {
+    flex-grow: 1;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    margin-right: 0.5rem;
+  }
+
+  .message-form button {
+    padding: 0.75rem 1.5rem;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+
+  .message-form button:hover {
+    background-color: #3a7bc8;
+  }
+</style>
+
+<script>
+  function getWS() {
+    return document.getElementById("messages").__ws;
+  }
+
+  function sendMessage(event) {
+    event.preventDefault();
+    var input = document.getElementById("msgInput");
+    var socket = getWS();
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      var messageContent = input.value;
+      socket.send(messageContent);
+
+      // Add the sent message to the chat window
+      var messageDiv = document.createElement("div");
+      messageDiv.className = "message sent";
+      messageDiv.textContent = messageContent;
+      document.getElementById("messages").appendChild(messageDiv);
+      messageDiv.scrollIntoView({ behavior: "smooth" });
+
+      input.value = "";
+    }
+  }
+
+  // Function to add received messages to the chat window
+  function addReceivedMessage(content) {
+    var messageDiv = document.createElement("div");
+    messageDiv.className = "message received";
+    messageDiv.textContent = content;
+    document.getElementById("messages").appendChild(messageDiv);
+    messageDiv.scrollIntoView({ behavior: "smooth" });
+  }
+
+  // Listen for messages from the WebSocket
+  var ws = getWS();
+  ws.addEventListener("message", function (event) {
+    var message = JSON.parse(event.data);
+    addReceivedMessage(message.content);
+  });
+</script>
+{{ end }}
