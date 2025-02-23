@@ -1,5 +1,22 @@
 {{ define "users_list.html" }}
 <style>
+  .unread-badge {
+    background: #f44336;
+    color: white;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    font-size: 0.8rem;
+  }
+
+  .notifications-container {
+    display: none;
+  }
+
   .user-list {
     list-style: none;
     padding: 0;
@@ -82,7 +99,7 @@
     >
       <img class="user-pic" src="{{ .picture }}" alt="{{ .name }}" />
       <span>{{ .name }}</span>
-      <div class="user-status"></div>
+      <div class="unread-badge" data-user="{{ .id }}"></div>
     </li>
     {{ end }}
   </ul>

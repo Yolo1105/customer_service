@@ -209,11 +209,20 @@
     </div>
 
     <script>
+      let unreadMessages = {};
       let ws = null;
       let currentPartner = null;
       let partnerName = null;
       const username = "{{ .Username }}";
       let messageHistory = {};
+
+      function updateUnreadBadges() {
+        document.querySelectorAll(".unread-badge").forEach((badge) => {
+          const userId = badge.dataset.user;
+          badge.textContent = unreadMessages[userId] || "";
+          badge.style.display = unreadMessages[userId] ? "flex" : "none";
+        });
+      }
 
       // Improved WebSocket handling
       function connectWebSocket() {
@@ -250,11 +259,18 @@
 
         ws.onmessage = function (event) {
           const msg = JSON.parse(event.data);
+
+          if (currentPartner !== msg.fromId) {
+            unreadMessages[msg.fromId] = (unreadMessages[msg.fromId] || 0) + 1;
+            updateUnreadBadges();
+          }
+
           addReceivedMessage(
             msg.fromId,
             msg.fromName,
             msg.fromPicture,
-            msg.content
+            msg.content,
+            msg.timestamp
           );
         };
       }
@@ -269,6 +285,19 @@
         currentPartner = id;
         partnerName = name;
         document.getElementById("chat-partner").textContent = name;
+        delete unreadMessages[id];
+
+        fetch(`/messages?with=${id}`)
+          .then((response) => response.json())
+          .then((messages) => {
+            const messagesDiv = document.getElementById("messages");
+            messagesDiv.innerHTML = messages
+              .map(
+                (msg) =>
+                  `<div class="message">${msg.content} <span>${msg.timestamp}</span></div>`
+              )
+              .join("");
+          });
 
         // Show any existing chat history with this user
         const messagesDiv = document.getElementById("messages");
@@ -302,6 +331,9 @@
           });
           messagesDiv.lastElementChild?.scrollIntoView({ behavior: "smooth" });
         }
+
+        unreadMessages[id] = 0;
+        updateUnreadBadges();
 
         // Update input/button state in case the WebSocket is open
         if (ws && ws.readyState === WebSocket.OPEN) {

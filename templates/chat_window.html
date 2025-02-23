@@ -143,11 +143,18 @@
 
     ws.onmessage = function (event) {
       const msg = JSON.parse(event.data);
+
+      if (currentPartner !== msg.fromId) {
+        unreadMessages[msg.fromId] = (unreadMessages[msg.fromId] || 0) + 1;
+        updateUnreadBadges();
+      }
+
       addReceivedMessage(
         msg.fromId,
         msg.fromName,
         msg.fromPicture,
-        msg.content
+        msg.content,
+        msg.timestamp
       );
     };
 
