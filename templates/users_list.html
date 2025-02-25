@@ -61,9 +61,51 @@
   .online-status.offline {
     background-color: #f44336;
   }
+
+  .self-section {
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #eee;
+  }
+
+  .self-item {
+    display: flex;
+    align-items: center;
+  }
+
+  .self-item .user-pic {
+    margin-right: 0.5rem;
+  }
+
+  .you-label {
+    font-size: 0.8rem;
+    padding: 2px 5px;
+    background-color: #eee;
+    border-radius: 3px;
+    margin-left: 5px;
+    color: #666;
+  }
+
+  .section-title {
+    margin-top: 1rem;
+    font-size: 0.9rem;
+    color: #666;
+    margin-bottom: 0.5rem;
+  }
 </style>
 
-<h4>Chats</h4>
+<!-- 自己信息 -->
+{{ if .Self }}
+<div class="self-section">
+  <div class="self-item">
+    <img class="user-pic" src="{{ .Self.picture }}" alt="{{ .Self.name }}" />
+    <span>{{ .Self.name }} <span class="you-label">YOU</span></span>
+  </div>
+</div>
+{{ end }}
+
+<!-- 所有聊天用户 -->
+<div class="section-title">All Users</div>
 <ul class="user-list">
   {{ range .AllUsers }}
   <li

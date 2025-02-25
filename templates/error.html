@@ -1,0 +1,108 @@
+{{ define "error.html" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Error - Chat App</title>
+    <style>
+      :root {
+        --primary-color: #4a90e2;
+        --secondary-color: #f5f5f5;
+        --error-color: #f44336;
+        --text-color: #333;
+        --border-color: #e0e0e0;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f9f9f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+      }
+
+      .error-container {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        max-width: 500px;
+        width: 90%;
+      }
+
+      .error-icon {
+        font-size: 4rem;
+        color: var(--error-color);
+        margin-bottom: 1rem;
+      }
+
+      h1 {
+        color: var(--error-color);
+        margin-bottom: 1rem;
+      }
+
+      p {
+        color: #666;
+        margin-bottom: 1.5rem;
+        font-size: 1rem;
+        line-height: 1.5;
+      }
+
+      .error-code {
+        display: inline-block;
+        padding: 0.3rem 0.7rem;
+        background-color: #f5f5f5;
+        border-radius: 4px;
+        font-family: monospace;
+        margin-bottom: 1.5rem;
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 0.75rem 1.5rem;
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        text-decoration: none;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      .btn:hover {
+        background-color: #357ae8;
+      }
+
+      .error-details {
+        margin-top: 1.5rem;
+        font-size: 0.85rem;
+        color: #888;
+        padding-top: 1rem;
+        border-top: 1px solid #eee;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="error-container">
+      <div class="error-icon">⚠️</div>
+      <h1>{{ .Title }}</h1>
+      <p>{{ .Message }}</p>
+      {{ if .Code }}
+      <div class="error-code">Error {{ .Code }}</div>
+      {{ end }}
+      <a href="{{ .ReturnURL }}" class="btn">{{ .ButtonText }}</a>
+
+      {{ if .Details }}
+      <div class="error-details">{{ .Details }}</div>
+      {{ end }}
+    </div>
+  </body>
+</html>
+{{ end }}

@@ -336,20 +336,26 @@
 
         ws = new WebSocket(`ws://${window.location.host}/ws`);
 
+        // 添加更好的错误处理
+        ws.onerror = function (event) {
+          console.error("WebSocket Error:", event);
+          showConnectionError();
+        };
+
         ws.onopen = function () {
           console.log("WebSocket connected!");
           connectionStatus.textContent = "Connected";
           connectionStatus.className = "connection-status connected";
 
-          // Hide after 2 seconds
+          // 隐藏连接状态
           setTimeout(() => {
             connectionStatus.style.display = "none";
           }, 2000);
 
-          // Reset reconnection attempts
+          // 重置重连尝试
           reconnectAttempts = 0;
 
-          // Enable the message form if a partner is selected
+          // 启用输入框
           if (currentPartner) {
             document.getElementById("message-input").disabled = false;
             document
@@ -358,38 +364,48 @@
           }
         };
 
-        // Reconnection logic with shorter delays
+        // 简化的重连逻辑
         ws.onclose = function (e) {
-          console.log("WebSocket disconnected, reconnecting...", e.reason);
+          console.log(
+            "WebSocket disconnected, reconnecting...",
+            e.code,
+            e.reason
+          );
+
+          // 禁用输入框
           document.getElementById("message-input").disabled = true;
           document
             .getElementById("message-form")
             .querySelector("button").disabled = true;
 
-          // Show disconnected status
-          connectionStatus.textContent = "Disconnected. Reconnecting...";
-          connectionStatus.className = "connection-status disconnected";
-          connectionStatus.style.display = "block";
+          // 显示断开状态
+          showDisconnectedStatus();
 
-          // Fixed short delay (2 seconds) for faster reconnection
-          setTimeout(() => connectWebSocket(), 2000);
-        };
-
-        ws.onerror = function (error) {
-          console.error("WebSocket Error:", error);
+          // 定时重连
+          setTimeout(() => {
+            // 检查cookie是否还存在
+            if (document.cookie.indexOf("google_id") === -1) {
+              // Cookie已过期，需要重新登录
+              window.location.href = "/login";
+              return;
+            }
+            connectWebSocket();
+          }, 3000);
         };
 
         ws.onmessage = function (event) {
           try {
-            const data = JSON.parse(event.data);
-            console.log("Received message:", data);
-
-            // Handle different message types
-            if (data === "users-update") {
-              htmx.trigger("#users-list", "load");
+            // 如果收到用户列表更新通知
+            if (event.data === "users-update") {
+              reloadUsersList();
               return;
             }
 
+            // 解析其他消息
+            const data = JSON.parse(event.data);
+            console.log("Received:", data);
+
+            // 处理不同类型的消息
             switch (data.type) {
               case "typing":
                 handleTypingIndicator(data);
@@ -398,13 +414,42 @@
                 handleStatusUpdate(data);
                 break;
               default:
-                // Default handle as chat message
+                // 默认处理为普通消息
                 handleIncomingMessage(data);
             }
           } catch (e) {
-            console.error("Error parsing message:", e);
+            console.error("Error processing message:", e, event.data);
           }
         };
+      }
+
+      function showDisconnectedStatus() {
+        const connectionStatus = document.getElementById("connection-status");
+        connectionStatus.textContent = "Disconnected. Reconnecting...";
+        connectionStatus.className = "connection-status disconnected";
+        connectionStatus.style.display = "block";
+      }
+
+      function showConnectionError() {
+        const connectionStatus = document.getElementById("connection-status");
+        connectionStatus.textContent = "Connection Error. Retrying...";
+        connectionStatus.className = "connection-status disconnected";
+        connectionStatus.style.display = "block";
+      }
+
+      function reloadUsersList() {
+        const usersList = document.getElementById("users-list");
+        if (usersList && typeof htmx !== "undefined") {
+          htmx.trigger(usersList, "load");
+        } else {
+          console.warn("Could not reload users list - htmx not available");
+          // 回退方案：直接刷新
+          fetch("/users")
+            .then((response) => response.text())
+            .then((html) => {
+              if (usersList) usersList.innerHTML = html;
+            });
+        }
       }
 
       function handleIncomingMessage(msg) {

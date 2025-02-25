@@ -1,0 +1,153 @@
+{{ define "register.html" }}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Complete Registration</title>
+    <style>
+      :root {
+        --primary-color: #4a90e2;
+        --secondary-color: #f5f5f5;
+        --text-color: #333;
+        --border-color: #e0e0e0;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background-color: #f9f9f9;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+      }
+
+      .register-container {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        width: 400px;
+      }
+
+      h1 {
+        color: var(--primary-color);
+        margin-bottom: 1rem;
+      }
+
+      p {
+        color: #666;
+        margin-bottom: 1.5rem;
+        font-size: 1rem;
+      }
+
+      .user-info {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background-color: #f5f5f5;
+        border-radius: 8px;
+      }
+
+      .user-pic {
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        margin-right: 1rem;
+        border: 2px solid #ddd;
+      }
+
+      .user-details {
+        text-align: left;
+      }
+
+      .user-email {
+        font-size: 0.9rem;
+        color: #666;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+      }
+
+      label {
+        margin-bottom: 0.5rem;
+        text-align: left;
+        font-weight: bold;
+        color: #555;
+      }
+
+      input[type="text"] {
+        padding: 0.75rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        margin-bottom: 1.5rem;
+        font-size: 1rem;
+      }
+
+      button {
+        padding: 0.75rem 1.5rem;
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      button:hover {
+        background-color: #357ae8;
+      }
+
+      .back-link {
+        display: block;
+        margin-top: 1rem;
+        color: var(--primary-color);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+
+      .back-link:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="register-container">
+      <h1>Complete Registration</h1>
+      <p>Welcome! Please set your display name to continue.</p>
+
+      <div class="user-info">
+        <img class="user-pic" src="{{ .Picture }}" alt="{{ .Name }}" />
+        <div class="user-details">
+          <div>{{ .Name }}</div>
+          <div class="user-email">{{ .Email }}</div>
+        </div>
+      </div>
+
+      <form method="POST" action="/register">
+        <label for="display_name">Display Name</label>
+        <input
+          type="text"
+          id="display_name"
+          name="display_name"
+          value="{{ .Name }}"
+          required
+          minlength="3"
+          maxlength="50"
+        />
+        <button type="submit">Complete Registration</button>
+      </form>
+
+      <a href="/logout" class="back-link">Cancel and logout</a>
+    </div>
+  </body>
+</html>
+{{ end }}
