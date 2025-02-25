@@ -31,6 +31,9 @@ type Message struct {
     ReceiverID string `json:"receiver_id"`
     Content    string `json:"content"`
     Timestamp  string `json:"timestamp"`
+    Status     string `json:"status"` // 新增: 消息状态 (sent, delivered, read)
+    Picture    string `json:"picture,omitempty"` // 发送者头像
+    Name       string `json:"name,omitempty"`    // 发送者名称
 }
 
 var (
@@ -47,6 +50,8 @@ var (
 
     upgrader = websocket.Upgrader{
         CheckOrigin: func(r *http.Request) bool { return true },
+        ReadBufferSize:  1024,
+        WriteBufferSize: 1024,
     }
 
     db                *sql.DB
@@ -58,6 +63,14 @@ func main() {
     defer db.Close()
 
     loadOAuthConfig()
+
+    // 创建 static 文件夹，如果不存在
+    if _, err := os.Stat("static"); os.IsNotExist(err) {
+        os.Mkdir("static", 0755)
+    }
+
+    // 静态文件服务
+    http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
     http.HandleFunc("/", loginPageHandler)
     http.HandleFunc("/logout", logoutHandler)
@@ -78,6 +91,7 @@ func InitDB() *sql.DB {
         log.Fatal("Failed to open DB:", err)
     }
 
+    // 用户表创建
     createTableSQL := `
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +104,25 @@ func InitDB() *sql.DB {
     if _, err := db.Exec(createTableSQL); err != nil {
         log.Fatal("Failed to create users table:", err)
     }
+
+    // 消息表创建（添加status字段）
+    createMessagesTable := `
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id TEXT NOT NULL,
+        receiver_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        status TEXT DEFAULT 'sent'
+    );
+    `
+    if _, err := db.Exec(createMessagesTable); err != nil {
+        log.Fatal("Failed to create messages table:", err)
+    }
+
+    // 尝试添加status列（如果表已存在但没有该列）
+    _, err = db.Exec("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent';")
+    // 忽略错误，列可能已存在
 
     fmt.Println("✅ Database initialized successfully!")
     return db
@@ -235,82 +268,106 @@ func logoutHandler(w http.ResponseWriter, r *http.Request) {
     http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// Get past chat users
+func getPastChatUsers(currentUserID string) []map[string]interface{} {
+    rows, err := db.Query(`
+        SELECT DISTINCT u.google_id, u.name, u.picture 
+        FROM users u
+        JOIN messages m ON u.google_id = m.sender_id OR u.google_id = m.receiver_id
+        WHERE (m.sender_id = ? OR m.receiver_id = ?)
+        AND u.google_id != ?
+        GROUP BY u.google_id
+    `, currentUserID, currentUserID, currentUserID)
+
+    if err != nil {
+        log.Println("Failed to get past chat users:", err)
+        return nil
+    }
+    defer rows.Close()
+
+    var pastChats []map[string]interface{}
+    for rows.Next() {
+        var id, name, picture string
+        if err := rows.Scan(&id, &name, &picture); err == nil {
+            pastChats = append(pastChats, map[string]interface{}{
+                "id":      id,
+                "name":    name,
+                "picture": picture,
+                "online":  false,
+            })
+        }
+    }
+    return pastChats
+}
+
+// 修改 onlineUsersHandler 函数
 func onlineUsersHandler(w http.ResponseWriter, r *http.Request) {
-    // Add cache headers
+    // 添加缓存控制头
     w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
     w.Header().Set("Pragma", "no-cache")
     w.Header().Set("Expires", "0")
 
     currentUserID := getGoogleID(r)
-
-    // Get chat history users
-    chatListUsers := getChatListUsers(currentUserID)
-
-    // Update online status for chat list users
-    clients.RLock()
-    for i, user := range chatListUsers {
-        id, ok := user["id"].(string)
-        if ok {
-            if _, online := clients.connections[id]; online {
-                chatListUsers[i]["online"] = true
-            } else {
-                chatListUsers[i]["online"] = false
-            }
-        }
+    if currentUserID == "" {
+        http.Error(w, "Unauthorized", http.StatusUnauthorized)
+        return
     }
-    clients.RUnlock()
 
-    // Get all users from database
-    rows, err := db.Query("SELECT google_id, name, picture FROM users")
+    // 获取所有用户信息但排除当前用户
+    rows, err := db.Query(`
+        SELECT google_id, name, picture 
+        FROM users 
+        WHERE google_id != ?
+        ORDER BY name
+    `, currentUserID)
+
     if err != nil {
+        log.Println("Error fetching users:", err)
         http.Error(w, "Database error", http.StatusInternalServerError)
         return
     }
     defer rows.Close()
 
-    var allUsers []map[string]string
+    var allUsers []map[string]interface{}
+    
+    // 获取所有用户
     for rows.Next() {
         var id, name, picture string
-        if err := rows.Scan(&id, &name, &picture); err != nil {
-            continue
-        }
-        allUsers = append(allUsers, map[string]string{
-            "id":      id,
-            "name":    name,
-            "picture": picture,
-        })
-    }
-
-    // Split into self and others
-    var self, others []map[string]string
-    clients.RLock()
-    for _, user := range allUsers {
-        if user["id"] == currentUserID {
-            self = append(self, user)
-        } else if _, ok := clients.users[user["id"]]; ok {
-            others = append(others, user)
+        if err := rows.Scan(&id, &name, &picture); err == nil {
+            // 检查在线状态
+            clients.RLock()
+            _, online := clients.connections[id]
+            clients.RUnlock()
+            
+            allUsers = append(allUsers, map[string]interface{}{
+                "id":      id,
+                "name":    name,
+                "picture": picture,
+                "online":  online,
+            })
         }
     }
-    clients.RUnlock()
-
+    
     templates.ExecuteTemplate(w, "users_list.html", map[string]interface{}{
-        "Self":     self,
-        "Others":   others,
-        "ChatList": chatListUsers,
+        "AllUsers": allUsers,
     })
 }
 
 func getChatListUsers(currentUserID string) []map[string]interface{} {
     rows, err := db.Query(`
-        SELECT DISTINCT u.google_id as id, u.name, u.picture 
+        SELECT u.google_id as id, u.name, u.picture 
         FROM users u
-        JOIN messages m ON u.google_id IN (m.sender_id, m.receiver_id)
-        WHERE ? IN (m.sender_id, m.receiver_id)
+        WHERE EXISTS (
+            SELECT 1 FROM messages m
+            WHERE (m.sender_id = ? AND m.receiver_id = u.google_id)
+            OR (m.receiver_id = ? AND m.sender_id = u.google_id)
+        )
         AND u.google_id != ?
-    `, currentUserID, currentUserID)
-    
+        GROUP BY u.google_id
+    `, currentUserID, currentUserID, currentUserID)
+
     if err != nil {
-        log.Println("Failed to get chat list users:", err)
+        log.Println("Error fetching chat list users:", err)
         return nil
     }
     defer rows.Close()
@@ -371,9 +428,11 @@ func chatHandler(w http.ResponseWriter, r *http.Request) {
     templates.ExecuteTemplate(w, "chat.html", map[string]interface{}{
         "Username":    name,
         "UserPicture": picture,
+        "GoogleID":    googleID,
     })
 }
 
+// 优化 WebSocket 消息处理
 func wsHandler(w http.ResponseWriter, r *http.Request) {
     googleID := getGoogleID(r)
     if googleID == "" {
@@ -381,7 +440,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Get user info from database
+    // 获取用户信息
     var name, picture string
     err := db.QueryRow("SELECT name, picture FROM users WHERE google_id = ?", googleID).Scan(&name, &picture)
     if err != nil {
@@ -396,75 +455,255 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // 设置较短的写超时以避免长时间阻塞
+    conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+
     clients.Lock()
     clients.connections[googleID] = conn
-    clients.users[googleID] = UserInfo{Name: name, Picture: picture} // Added line to track user info
+    clients.users[googleID] = UserInfo{Name: name, Picture: picture}
     clients.Unlock()
 
+    // 广播用户上线通知（简化以提高性能）
+    broadcastUserListUpdate()
+
+    // 确保在连接关闭时清理
     defer func() {
         clients.Lock()
         delete(clients.connections, googleID)
-        delete(clients.users, googleID) // Remove user info on disconnect
+        delete(clients.users, googleID)
         clients.Unlock()
+        
         conn.Close()
         broadcastUserListUpdate()
     }()
 
+    // 心跳检测 - 减少频率以降低系统负担
+    conn.SetReadDeadline(time.Now().Add(120 * time.Second))
+    conn.SetPongHandler(func(string) error {
+        conn.SetReadDeadline(time.Now().Add(120 * time.Second))
+        return nil
+    })
+
+    go func() {
+        ticker := time.NewTicker(60 * time.Second)
+        defer ticker.Stop()
+        for {
+            select {
+            case <-ticker.C:
+                if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+                    return
+                }
+            }
+        }
+    }()
+
+    // 消息处理循环
     for {
         _, msg, err := conn.ReadMessage()
         if err != nil {
-            log.Println("WebSocket read error:", err)
             break
         }
 
-        var message struct {
-            To      string `json:"to"`
-            Content string `json:"content"`
-        }
+        // 重置写超时
+        conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 
-        if err := json.Unmarshal(msg, &message); err == nil {
-            clients.RLock()
-            if message.To == "" {
-                log.Println("Received message with empty recipient")
-                clients.RUnlock()
-                continue
-            }
-            clients.RUnlock()
-
-            // Save message to database
-            _, err := db.Exec(
-                "INSERT INTO messages (sender_id, receiver_id, content) VALUES (?, ?, ?)",
-                googleID, message.To, message.Content,
-            )
-            if err != nil {
-                log.Println("Failed to save message:", err)
-            }
-
-            // Send message in real-time if the recipient is online
-            clients.RLock()
-            if recipientConn, ok := clients.connections[message.To]; ok {
-                senderName := clients.users[googleID].Name
-                senderPic := clients.users[googleID].Picture
-                msgData := map[string]interface{}{
-                    "fromId":      googleID,
-                    "fromName":    senderName,
-                    "fromPicture": senderPic,
-                    "content":     message.Content,
-                    "timestamp":   time.Now().Format(time.RFC3339),
-                }
-
-                if err := recipientConn.WriteJSON(msgData); err != nil {
-                    log.Println("Failed to send message:", err)
-                }
-            }
-            clients.RUnlock()
-        }
+        go handleWebSocketMessage(conn, googleID, msg) // 使用 goroutine 处理消息以避免阻塞
     }
 }
 
+// 优化消息处理函数
+func handleWebSocketMessage(conn *websocket.Conn, senderID string, message []byte) error {
+    var msg map[string]interface{}
+    if err := json.Unmarshal(message, &msg); err != nil {
+        return err
+    }
+
+    // 检查消息类型
+    msgType, _ := msg["type"].(string)
+
+    switch msgType {
+    case "typing":
+        return handleTypingNotificationFast(conn, senderID, msg)
+    case "status_update":
+        return handleStatusUpdateFast(conn, senderID, msg)
+    default:
+        // 默认处理聊天消息，简化处理流程
+        return handleChatMessageFast(conn, senderID, msg)
+    }
+}
+
+
+// 高效处理聊天消息
+func handleChatMessageFast(conn *websocket.Conn, senderID string, msg map[string]interface{}) error {
+    receiverID, ok := msg["to"].(string)
+    if !ok || receiverID == "" {
+        return fmt.Errorf("invalid receiver ID")
+    }
+    
+    content, ok := msg["content"].(string)
+    if !ok || content == "" {
+        return fmt.Errorf("invalid message content")
+    }
+    
+    // 获取发送者信息 - 使用缓存的用户信息而不是数据库查询
+    clients.RLock()
+    senderInfo, ok := clients.users[senderID]
+    clients.RUnlock()
+    
+    var senderName, senderPic string
+    if ok {
+        senderName = senderInfo.Name
+        senderPic = senderInfo.Picture
+    } else {
+        // 回退到数据库查询
+        err := db.QueryRow("SELECT name, picture FROM users WHERE google_id = ?", senderID).Scan(&senderName, &senderPic)
+        if err != nil {
+            log.Println("Error getting sender info:", err)
+            return err
+        }
+    }
+    
+    // 保存消息到数据库
+    var messageID int64
+    result, err := db.Exec(
+        "INSERT INTO messages (sender_id, receiver_id, content, status) VALUES (?, ?, ?, ?)",
+        senderID, receiverID, content, "sent",
+    )
+    if err != nil {
+        log.Println("Error saving message:", err)
+        return err
+    }
+    
+    messageID, err = result.LastInsertId()
+    if err != nil {
+        log.Println("Error getting message ID:", err)
+        return err
+    }
+    
+    // 构建响应消息
+    responseMsg := map[string]interface{}{
+        "id":          messageID,
+        "fromId":      senderID,
+        "fromName":    senderName,
+        "fromPicture": senderPic,
+        "content":     content,
+        "timestamp":   time.Now().Format(time.RFC3339),
+        "status":      "sent",
+    }
+    
+    // 高效发送给接收者
+    clients.RLock()
+    receiverConn, receiverOnline := clients.connections[receiverID]
+    clients.RUnlock()
+    
+    if receiverOnline {
+        // 直接发送到接收者的 WebSocket
+        go func() {
+            if err := receiverConn.WriteJSON(responseMsg); err != nil {
+                log.Println("Error sending message to receiver:", err)
+            } else {
+                // 更新状态为已送达
+                db.Exec("UPDATE messages SET status = 'delivered' WHERE id = ?", messageID)
+                
+                // 通知发送者消息已送达
+                responseMsg["status"] = "delivered"
+                conn.WriteJSON(responseMsg)
+            }
+        }()
+    } else {
+        // 如果接收者不在线，只需返回发送确认
+        conn.WriteJSON(responseMsg)
+    }
+    
+    return nil
+}
+// 高效处理打字通知
+func handleTypingNotificationFast(conn *websocket.Conn, senderID string, msg map[string]interface{}) error {
+    receiverID, ok := msg["to"].(string)
+    if !ok || receiverID == "" {
+        return nil // 直接返回，不报错
+    }
+    
+    // 获取发送者姓名 - 使用缓存的用户信息
+    clients.RLock()
+    senderInfo, hasInfo := clients.users[senderID]
+    receiverConn, receiverOnline := clients.connections[receiverID]
+    clients.RUnlock()
+    
+    if !receiverOnline {
+        return nil // 接收者不在线，直接返回
+    }
+    
+    var senderName string
+    if hasInfo {
+        senderName = senderInfo.Name
+    } else {
+        // 从数据库获取名字
+        db.QueryRow("SELECT name FROM users WHERE google_id = ?", senderID).Scan(&senderName)
+    }
+    
+    // 发送通知到接收者
+    typingMsg := map[string]interface{}{
+        "type":     "typing",
+        "fromId":   senderID,
+        "fromName": senderName,
+    }
+    
+    return receiverConn.WriteJSON(typingMsg)
+}
+
+// 高效处理状态更新
+func handleStatusUpdateFast(conn *websocket.Conn, senderID string, msg map[string]interface{}) error {
+    receiverID, ok := msg["to"].(string)
+    if !ok || receiverID == "" {
+        return nil
+    }
+    
+    messageID, ok := msg["messageId"].(float64)
+    if !ok {
+        messageIDStr, isStr := msg["messageId"].(string)
+        if !isStr {
+            return nil
+        }
+        fmt.Sscanf(messageIDStr, "%f", &messageID)
+    }
+    
+    status, ok := msg["status"].(string)
+    if !ok || (status != "delivered" && status != "read") {
+        return nil
+    }
+    
+    // 更新数据库（后台异步）
+    go func() {
+        db.Exec(
+            "UPDATE messages SET status = ? WHERE id = ? AND sender_id = ?",
+            status, int64(messageID), receiverID,
+        )
+    }()
+    
+    // 通知消息发送者
+    clients.RLock()
+    receiverConn, receiverOnline := clients.connections[receiverID]
+    clients.RUnlock()
+    
+    if receiverOnline {
+        statusMsg := map[string]interface{}{
+            "type":      "status_update",
+            "messageId": int64(messageID),
+            "fromId":    senderID,
+            "status":    status,
+        }
+        
+        receiverConn.WriteJSON(statusMsg)
+    }
+    
+    return nil
+}
+
+// 优化获取消息历史
 func messagesHandler(w http.ResponseWriter, r *http.Request) {
-    googleID := getGoogleID(r)
-    if googleID == "" {
+    currentUserID := getGoogleID(r)
+    if currentUserID == "" {
         http.Error(w, "Unauthorized", http.StatusUnauthorized)
         return
     }
@@ -474,28 +713,96 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "Missing partner ID", http.StatusBadRequest)
         return
     }
-
+    
+    // 限制返回的消息数量以提高性能
+    limit := 100
+    
+    // 查询消息历史，包含用户信息和状态
     rows, err := db.Query(`
-        SELECT content, timestamp, sender_id FROM messages
-        WHERE (sender_id = ? AND receiver_id = ?)
-        OR (sender_id = ? AND receiver_id = ?)
-        ORDER BY timestamp`,
-        googleID, partnerID, partnerID, googleID,
+        SELECT m.id, m.sender_id, m.content, m.timestamp, m.status, u.name, u.picture 
+        FROM messages m
+        JOIN users u ON m.sender_id = u.google_id
+        WHERE (m.sender_id = ? AND m.receiver_id = ?)
+        OR (m.sender_id = ? AND m.receiver_id = ?)
+        ORDER BY m.timestamp DESC
+        LIMIT ?
+    `, currentUserID, partnerID, partnerID, currentUserID, limit,
     )
+    
     if err != nil {
-        http.Error(w, "Failed to retrieve messages", http.StatusInternalServerError)
+        http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
         return
     }
     defer rows.Close()
 
-    var messages []Message
+    var messages []map[string]interface{}
+    var messageIDs []interface{}
+    
     for rows.Next() {
-        var msg Message
-        if err := rows.Scan(&msg.Content, &msg.Timestamp, &msg.SenderID); err != nil {
-            log.Println("Error scanning message:", err)
+        var id int
+        var senderID, content, timestamp, status, name, picture string
+        if err := rows.Scan(&id, &senderID, &content, &timestamp, &status, &name, &picture); err != nil {
             continue
         }
-        messages = append(messages, msg)
+        
+        // 如果是接收的，未读消息，记录ID以便稍后标记为已读
+        if senderID == partnerID && status != "read" {
+            messageIDs = append(messageIDs, id)
+        }
+        
+        messages = append(messages, map[string]interface{}{
+            "id":         id,
+            "sender_id":  senderID,
+            "content":    content,
+            "timestamp":  timestamp,
+            "status":     status,
+            "name":       name,
+            "picture":    picture,
+        })
+    }
+    
+    // 反转列表以按时间顺序显示
+    for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+        messages[i], messages[j] = messages[j], messages[i]
+    }
+    
+    // 在后台更新消息为已读状态
+    if len(messageIDs) > 0 {
+        go func() {
+            // 构建批量更新的占位符
+            placeholders := make([]string, len(messageIDs))
+            for i := range placeholders {
+                placeholders[i] = "?"
+            }
+            
+            query := fmt.Sprintf(
+                "UPDATE messages SET status = 'read' WHERE id IN (%s)",
+                strings.Join(placeholders, ","),
+            )
+            
+            // 执行批量更新
+            args := make([]interface{}, len(messageIDs))
+            for i, id := range messageIDs {
+                args[i] = id
+            }
+            
+            db.Exec(query, args...)
+            
+            // 通知发送者消息已读
+            clients.RLock()
+            if conn, ok := clients.connections[partnerID]; ok {
+                for _, id := range messageIDs {
+                    readReceipt := map[string]interface{}{
+                        "type":      "status_update",
+                        "messageId": id,
+                        "fromId":    currentUserID,
+                        "status":    "read",
+                    }
+                    conn.WriteJSON(readReceipt)
+                }
+            }
+            clients.RUnlock()
+        }()
     }
 
     w.Header().Set("Content-Type", "application/json")

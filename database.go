@@ -29,7 +29,7 @@ func InitDB() *sql.DB {
 		log.Fatal(err)
 	}
 
-	// Create Messages Table
+	// Create Messages Table with status field
 	createMessagesTableSQL := `
 	CREATE TABLE IF NOT EXISTS messages (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +37,7 @@ func InitDB() *sql.DB {
 		receiver_id TEXT NOT NULL,
 		content TEXT NOT NULL,
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		status TEXT DEFAULT 'sent',
 		FOREIGN KEY(sender_id) REFERENCES users(google_id),
 		FOREIGN KEY(receiver_id) REFERENCES users(google_id)
 	);`
@@ -44,6 +45,10 @@ func InitDB() *sql.DB {
 	if err != nil {
 		log.Fatal("Failed to create messages table:", err)
 	}
+
+	// Try to add status column to existing table (if table exists but no status column)
+	_, err = db.Exec("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent';")
+	// Ignore error since column might already exist
 
 	fmt.Println("Database initialized successfully!")
 	return db

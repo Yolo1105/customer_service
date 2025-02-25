@@ -3,7 +3,15 @@
   <div class="chat-header">
     <h3>Chat with {{ .Partner }}</h3>
   </div>
-  <div id="messages" class="messages"></div>
+  <div id="messages" class="messages">
+    <div
+      class="default-state"
+      style="text-align: center; padding: 2rem; color: #666"
+    >
+      Select a user to start chatting
+    </div>
+  </div>
+
   <form class="message-form" onsubmit="sendMessage(event)">
     <input
       type="text"

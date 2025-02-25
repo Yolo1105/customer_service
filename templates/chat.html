@@ -4,7 +4,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Customer Service Chat</title>
+    <title>Chat</title>
     <script src="https://unpkg.com/htmx.org@1.9.6"></script>
     <style>
       #message-input:disabled {
@@ -61,20 +61,17 @@
         padding: 1rem;
         background-color: var(--primary-color);
         color: white;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
       }
 
-      .message img {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        margin-right: 0.5rem;
-        flex-shrink: 0;
-      }
-
-      .message.sent img {
-        order: 1;
-        margin-left: 0.5rem;
-        margin-right: 0;
+      .typing-indicator {
+        font-size: 0.8rem;
+        font-style: italic;
+        color: #fff;
+        opacity: 0.8;
+        display: none;
       }
 
       .messages {
@@ -87,12 +84,30 @@
 
       .message {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         max-width: 80%;
         margin-bottom: 1rem;
         padding: 0.75rem 1rem;
         border-radius: 20px;
         animation: fadeIn 0.3s ease-out;
+        position: relative;
+      }
+
+      .message-content {
+        flex-grow: 1;
+      }
+
+      .timestamp {
+        font-size: 0.7rem;
+        color: #999;
+        margin-top: 0.3rem;
+        display: block;
+      }
+
+      .message-status {
+        font-size: 0.7rem;
+        margin-left: 0.3rem;
+        color: #aaa;
       }
 
       .message img {
@@ -100,6 +115,7 @@
         height: 32px;
         border-radius: 50%;
         margin-right: 0.5rem;
+        flex-shrink: 0;
       }
 
       .message.sent {
@@ -111,6 +127,11 @@
       .message.received {
         align-self: flex-start;
         background-color: var(--secondary-color);
+      }
+
+      .message.sent .timestamp,
+      .message.sent .message-status {
+        color: rgba(255, 255, 255, 0.7);
       }
 
       @keyframes fadeIn {
@@ -167,20 +188,56 @@
       .logout-btn:hover {
         background-color: #d32f2f;
       }
+
+      .connection-status {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        display: none;
+      }
+
+      .connection-status.connected {
+        background-color: rgba(76, 175, 80, 0.2);
+        color: #4caf50;
+      }
+
+      .connection-status.disconnected {
+        background-color: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+        display: block;
+      }
+
+      .default-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #666;
+      }
+
+      .default-state img {
+        width: 100px;
+        height: 100px;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+      }
     </style>
   </head>
   <body>
     <div class="app-container">
       <div class="users-panel">
-        <h2>Online Users</h2>
-        <!-- Modified HTMX config: add delay and innerHTML swap -->
+        <h2>Chat</h2>
         <div
           id="users-list"
           hx-get="/users"
-          hx-trigger="load delay:100ms, every 10s"
+          hx-trigger="load delay:100ms, every 5s"
           hx-swap="innerHTML"
         >
-          {{ template "users_list.html" . }}
+          <!-- Users will be loaded here -->
         </div>
         <form action="/logout" method="POST">
           <button type="submit" class="logout-btn">Logout</button>
@@ -189,9 +246,23 @@
 
       <div class="chat-container">
         <div class="chat-header">
-          <h2>Chat with <span id="chat-partner">No one selected</span></h2>
+          <h2><span id="chat-partner">Select a chat</span></h2>
+          <div id="typing-indicator" class="typing-indicator">is typing...</div>
         </div>
-        <div id="messages" class="messages"></div>
+        <div class="connection-status" id="connection-status">
+          Connecting...
+        </div>
+        <div id="messages" class="messages">
+          <div class="default-state">
+            <img
+              src="/static/welcome.svg"
+              alt="Welcome"
+              onerror="this.src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzk5OSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEwIj48L2NpcmNsZT48cGF0aCBkPSJNOCAxNHMxLjUgMiA0IDIgNC0yIDQtMiI+PC9wYXRoPjxsaW5lIHgxPSI5IiB5MT0iOSIgeDI9IjkuMDEiIHkyPSI5Ij48L2xpbmU+PGxpbmUgeDE9IjE1IiB5MT0iOSIgeDI9IjE1LjAxIiB5Mj0iOSI+PC9saW5lPjwvc3ZnPg=='"
+            />
+            <p>Select a chat to start messaging</p>
+          </div>
+        </div>
+
         <form
           id="message-form"
           class="input-form"
@@ -202,6 +273,8 @@
             id="message-input"
             placeholder="Type a message..."
             disabled
+            oninput="handleTyping()"
+            autocomplete="off"
           />
           <button type="submit" disabled>Send</button>
         </form>
@@ -214,7 +287,28 @@
       let currentPartner = null;
       let partnerName = null;
       const username = "{{ .Username }}";
+      const googleID = "{{ .GoogleID }}";
       let messageHistory = {};
+      let reconnectAttempts = 0;
+      let typingTimeout = null;
+      let lastTypingTime = 0;
+
+      // Handle user typing with throttling
+      function handleTyping() {
+        if (!currentPartner || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+        const now = Date.now();
+        // Throttle typing events to one per second
+        if (now - lastTypingTime > 1000) {
+          lastTypingTime = now;
+          ws.send(
+            JSON.stringify({
+              type: "typing",
+              to: currentPartner,
+            })
+          );
+        }
+      }
 
       function updateUnreadBadges() {
         document.querySelectorAll(".unread-badge").forEach((badge) => {
@@ -222,35 +316,63 @@
           badge.textContent = unreadMessages[userId] || "";
           badge.style.display = unreadMessages[userId] ? "flex" : "none";
         });
+
+        // Update document title with unread count
+        const totalUnread = Object.values(unreadMessages).reduce(
+          (sum, count) => sum + count,
+          0
+        );
+        document.title = totalUnread > 0 ? `(${totalUnread}) Chat` : "Chat";
       }
 
-      // Improved WebSocket handling
+      // Improved WebSocket handling with proper reconnection logic
       function connectWebSocket() {
-        // Prevent duplicate connections
-        if (ws) return;
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+
+        const connectionStatus = document.getElementById("connection-status");
+        connectionStatus.textContent = "Connecting...";
+        connectionStatus.className = "connection-status";
+        connectionStatus.style.display = "block";
 
         ws = new WebSocket(`ws://${window.location.host}/ws`);
 
         ws.onopen = function () {
           console.log("WebSocket connected!");
-          // Refresh user list after connection
-          htmx.trigger("#users-list", "load");
+          connectionStatus.textContent = "Connected";
+          connectionStatus.className = "connection-status connected";
 
-          // Enable the message form
-          document.getElementById("message-input").disabled = false;
-          document
-            .getElementById("message-form")
-            .querySelector("button").disabled = false;
+          // Hide after 2 seconds
+          setTimeout(() => {
+            connectionStatus.style.display = "none";
+          }, 2000);
+
+          // Reset reconnection attempts
+          reconnectAttempts = 0;
+
+          // Enable the message form if a partner is selected
+          if (currentPartner) {
+            document.getElementById("message-input").disabled = false;
+            document
+              .getElementById("message-form")
+              .querySelector("button").disabled = false;
+          }
         };
 
-        // Reconnection logic
+        // Reconnection logic with shorter delays
         ws.onclose = function (e) {
           console.log("WebSocket disconnected, reconnecting...", e.reason);
           document.getElementById("message-input").disabled = true;
           document
             .getElementById("message-form")
             .querySelector("button").disabled = true;
-          setTimeout(() => connectWebSocket(), 3000);
+
+          // Show disconnected status
+          connectionStatus.textContent = "Disconnected. Reconnecting...";
+          connectionStatus.className = "connection-status disconnected";
+          connectionStatus.style.display = "block";
+
+          // Fixed short delay (2 seconds) for faster reconnection
+          setTimeout(() => connectWebSocket(), 2000);
         };
 
         ws.onerror = function (error) {
@@ -258,84 +380,168 @@
         };
 
         ws.onmessage = function (event) {
-          const msg = JSON.parse(event.data);
+          try {
+            const data = JSON.parse(event.data);
+            console.log("Received message:", data);
 
-          if (currentPartner !== msg.fromId) {
-            unreadMessages[msg.fromId] = (unreadMessages[msg.fromId] || 0) + 1;
-            updateUnreadBadges();
+            // Handle different message types
+            if (data === "users-update") {
+              htmx.trigger("#users-list", "load");
+              return;
+            }
+
+            switch (data.type) {
+              case "typing":
+                handleTypingIndicator(data);
+                break;
+              case "status_update":
+                handleStatusUpdate(data);
+                break;
+              default:
+                // Default handle as chat message
+                handleIncomingMessage(data);
+            }
+          } catch (e) {
+            console.error("Error parsing message:", e);
           }
-
-          addReceivedMessage(
-            msg.fromId,
-            msg.fromName,
-            msg.fromPicture,
-            msg.content,
-            msg.timestamp
-          );
         };
       }
 
-      // Initialize WebSocket with a small delay for HTMX
-      window.addEventListener("load", () => {
-        connectWebSocket();
-        setTimeout(() => htmx.process(document.body), 500);
-      });
+      function handleIncomingMessage(msg) {
+        // Skip if it's our own message that has been echoed back
+        if (msg.fromId === googleID) return;
+
+        // Update unread count if not chatting with this user
+        if (currentPartner !== msg.fromId) {
+          unreadMessages[msg.fromId] = (unreadMessages[msg.fromId] || 0) + 1;
+          updateUnreadBadges();
+
+          // Play notification sound
+          if ("Audio" in window) {
+            try {
+              new Audio("/static/notification.mp3").play();
+            } catch (e) {
+              console.log("Could not play notification sound");
+            }
+          }
+
+          // Desktop notification
+          if (Notification.permission === "granted" && document.hidden) {
+            new Notification(msg.fromName, {
+              body: msg.content,
+              icon: msg.fromPicture || "/static/favicon.ico",
+            });
+          }
+        } else {
+          // Send read receipt if we're chatting with this user
+          sendReadReceipt(msg.fromId, msg.id);
+        }
+
+        // Add message to the UI
+        addReceivedMessage(
+          msg.fromId,
+          msg.fromName,
+          msg.fromPicture,
+          msg.content,
+          msg.timestamp || new Date().toISOString(),
+          msg.id
+        );
+
+        // Always send delivered receipt
+        sendDeliveredReceipt(msg.fromId, msg.id);
+      }
+
+      function handleTypingIndicator(data) {
+        if (currentPartner !== data.fromId) return;
+
+        const typingIndicator = document.getElementById("typing-indicator");
+        typingIndicator.style.display = "block";
+
+        // Hide typing indicator after 3 seconds of inactivity
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          typingIndicator.style.display = "none";
+        }, 3000);
+      }
+
+      function handleStatusUpdate(data) {
+        console.log("Status update:", data);
+
+        if (data.messageId) {
+          // Message status update (read/delivered)
+          updateMessageStatus(data.messageId, data.status);
+        }
+
+        // Refresh user list to show online status
+        htmx.trigger("#users-list", "load");
+      }
+
+      function updateMessageStatus(messageId, status) {
+        const message = document.querySelector(
+          `.message[data-id="${messageId}"]`
+        );
+        if (message) {
+          message.dataset.status = status;
+          const statusSpan = message.querySelector(".message-status");
+          if (statusSpan) {
+            if (status === "read") {
+              statusSpan.textContent = "✓✓✓";
+            } else if (status === "delivered") {
+              statusSpan.textContent = "✓✓";
+            }
+          }
+        }
+      }
+
+      // Send delivered receipt
+      function sendDeliveredReceipt(userId, messageId) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+        console.log("Sending delivered receipt for message:", messageId);
+        ws.send(
+          JSON.stringify({
+            type: "status_update",
+            to: userId,
+            messageId: messageId,
+            status: "delivered",
+          })
+        );
+      }
+
+      // Send read receipt
+      function sendReadReceipt(userId, messageId) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+        console.log("Sending read receipt for message:", messageId);
+        ws.send(
+          JSON.stringify({
+            type: "status_update",
+            to: userId,
+            messageId: messageId,
+            status: "read",
+          })
+        );
+      }
 
       function selectUser(id, name) {
+        // Prevent selecting yourself
+        if (id === googleID) {
+          alert("You cannot chat with yourself");
+          return;
+        }
+
         currentPartner = id;
         partnerName = name;
         document.getElementById("chat-partner").textContent = name;
-        delete unreadMessages[id];
 
-        fetch(`/messages?with=${id}`)
-          .then((response) => response.json())
-          .then((messages) => {
-            const messagesDiv = document.getElementById("messages");
-            messagesDiv.innerHTML = messages
-              .map(
-                (msg) =>
-                  `<div class="message">${msg.content} <span>${msg.timestamp}</span></div>`
-              )
-              .join("");
-          });
-
-        // Show any existing chat history with this user
-        const messagesDiv = document.getElementById("messages");
-        messagesDiv.innerHTML = "";
-        if (messageHistory[id]) {
-          messageHistory[id].forEach((msg) => {
-            const messageDiv = document.createElement("div");
-            messageDiv.className = `message ${msg.type}`;
-            if (msg.type === "received") {
-              // If it was a received message, show fromName
-              const img = document.createElement("img");
-              img.src = msg.fromPicture || "";
-              img.alt = msg.fromName;
-              messageDiv.appendChild(img);
-
-              const text = document.createTextNode(
-                `${msg.fromName}: ${msg.content}`
-              );
-              messageDiv.appendChild(text);
-            } else {
-              // Sent message
-              const img = document.createElement("img");
-              img.src = "{{ .UserPicture }}";
-              img.alt = "You";
-              messageDiv.appendChild(img);
-
-              const text = document.createTextNode(`You: ${msg.content}`);
-              messageDiv.appendChild(text);
-            }
-            messagesDiv.appendChild(messageDiv);
-          });
-          messagesDiv.lastElementChild?.scrollIntoView({ behavior: "smooth" });
-        }
-
+        // Clear unread count for this user
         unreadMessages[id] = 0;
         updateUnreadBadges();
 
-        // Update input/button state in case the WebSocket is open
+        // Fetch message history
+        fetchMessages(id);
+
+        // Enable input if WebSocket is connected
         if (ws && ws.readyState === WebSocket.OPEN) {
           document.getElementById("message-input").disabled = false;
           document
@@ -344,77 +550,245 @@
         }
       }
 
-      function addSentMessage(partnerId, content) {
-        if (!messageHistory[partnerId]) {
-          messageHistory[partnerId] = [];
-        }
-
+      function fetchMessages(partnerId) {
         const messagesDiv = document.getElementById("messages");
-        const messageDiv = document.createElement("div");
-        messageDiv.className = "message sent";
+        messagesDiv.innerHTML = `<div class="loading-indicator">Loading messages...</div>`;
 
-        const img = document.createElement("img");
-        img.src = "{{ .UserPicture }}";
-        img.alt = "You";
-        messageDiv.appendChild(img);
+        fetch(`/messages?with=${partnerId}`)
+          .then((response) => {
+            if (!response.ok) throw new Error("Failed to load messages");
+            return response.json();
+          })
+          .then((messages) => {
+            console.log("Fetched messages:", messages);
+            messagesDiv.innerHTML = "";
 
-        const text = document.createTextNode(`You: ${content}`);
-        messageDiv.appendChild(text);
+            if (messages.length === 0) {
+              const emptyState = document.createElement("div");
+              emptyState.className = "default-state";
+              emptyState.innerHTML = `<p>No messages yet. Start the conversation!</p>`;
+              messagesDiv.appendChild(emptyState);
+              return;
+            }
 
-        messagesDiv.appendChild(messageDiv);
-        messageDiv.scrollIntoView({ behavior: "smooth" });
+            messages.forEach((msg) => {
+              const isSent = msg.sender_id === googleID;
 
-        messageHistory[partnerId].push({
-          type: "sent",
-          fromId: "self",
-          fromName: username,
-          content: content,
-        });
+              if (isSent) {
+                addSentMessageToDOM(
+                  msg.id,
+                  msg.content,
+                  msg.timestamp,
+                  msg.status || "sent",
+                  partnerId
+                );
+              } else {
+                addReceivedMessageToDOM(
+                  msg.id,
+                  msg.name,
+                  msg.picture,
+                  msg.content,
+                  msg.timestamp
+                );
+
+                // Mark as read if it wasn't already
+                if (msg.status !== "read") {
+                  sendReadReceipt(partnerId, msg.id);
+                }
+              }
+            });
+
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+          })
+          .catch((err) => {
+            console.error("Error fetching messages:", err);
+            messagesDiv.innerHTML = `<div class="error-state">Failed to load messages. Please try again.</div>`;
+          });
       }
 
-      function addReceivedMessage(fromId, fromName, fromPicture, content) {
-        const messagesDiv = document.getElementById("messages");
-        const messageDiv = document.createElement("div");
-        messageDiv.className = "message received";
+      function formatTime(timestamp) {
+        if (!timestamp) return "";
 
-        const img = document.createElement("img");
-        img.src = fromPicture;
-        img.alt = fromName;
-        messageDiv.appendChild(img);
+        const date = new Date(timestamp);
+        const now = new Date();
+        const isToday = date.toDateString() === now.toDateString();
 
-        const text = document.createTextNode(`${fromName}: ${content}`);
-        messageDiv.appendChild(text);
-
-        messagesDiv.appendChild(messageDiv);
-        messageDiv.scrollIntoView({ behavior: "smooth" });
-
-        if (!messageHistory[fromId]) {
-          messageHistory[fromId] = [];
-        }
-        messageHistory[fromId].push({
-          type: "received",
-          fromId,
-          fromName,
-          fromPicture,
-          content,
+        const timeStr = date.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
         });
+
+        if (isToday) {
+          return timeStr;
+        } else {
+          return `${date.toLocaleDateString()} ${timeStr}`;
+        }
       }
 
       function sendMessage(event) {
         event.preventDefault();
-        if (!ws || !currentPartner) return false;
+        if (!ws || !currentPartner || ws.readyState !== WebSocket.OPEN)
+          return false;
 
         const input = document.getElementById("message-input");
-        const message = {
-          to: currentPartner,
-          content: input.value,
-        };
-        ws.send(JSON.stringify(message));
+        const content = input.value.trim();
 
-        addSentMessage(currentPartner, input.value);
+        if (!content) return false;
+
+        // Optimistically add to UI immediately
+        const tempId = "temp_" + Date.now();
+        addSentMessageToDOM(
+          tempId,
+          content,
+          new Date().toISOString(),
+          "sent",
+          currentPartner
+        );
+
+        // Send via WebSocket
+        ws.send(
+          JSON.stringify({
+            to: currentPartner,
+            content: content,
+          })
+        );
+
         input.value = "";
         return false;
       }
+
+      function addSentMessageToDOM(
+        messageId,
+        content,
+        timestamp,
+        status,
+        partnerId
+      ) {
+        const messagesDiv = document.getElementById("messages");
+
+        // Remove default state if present
+        const defaultState = messagesDiv.querySelector(".default-state");
+        if (defaultState) {
+          defaultState.remove();
+        }
+
+        const messageDiv = document.createElement("div");
+        messageDiv.className = "message sent";
+        messageDiv.dataset.id = messageId;
+        messageDiv.dataset.to = partnerId;
+        messageDiv.dataset.status = status;
+
+        const img = document.createElement("img");
+        img.src = "{{ .UserPicture }}";
+        img.alt = "You";
+
+        const contentDiv = document.createElement("div");
+        contentDiv.className = "message-content";
+
+        const textDiv = document.createElement("div");
+        textDiv.textContent = content;
+        contentDiv.appendChild(textDiv);
+
+        const timestampSpan = document.createElement("span");
+        timestampSpan.className = "timestamp";
+        timestampSpan.textContent = formatTime(timestamp);
+        contentDiv.appendChild(timestampSpan);
+
+        const statusSpan = document.createElement("span");
+        statusSpan.className = "message-status";
+        // Set appropriate status indicator
+        switch (status) {
+          case "read":
+            statusSpan.textContent = "✓✓✓";
+            break;
+          case "delivered":
+            statusSpan.textContent = "✓✓";
+            break;
+          default:
+            statusSpan.textContent = "✓";
+        }
+        contentDiv.appendChild(statusSpan);
+
+        messageDiv.appendChild(contentDiv);
+        messageDiv.appendChild(img);
+        messagesDiv.appendChild(messageDiv);
+        messageDiv.scrollIntoView({ behavior: "smooth" });
+      }
+
+      function addReceivedMessageToDOM(
+        messageId,
+        fromName,
+        fromPicture,
+        content,
+        timestamp
+      ) {
+        const messagesDiv = document.getElementById("messages");
+
+        // Remove default state if present
+        const defaultState = messagesDiv.querySelector(".default-state");
+        if (defaultState) {
+          defaultState.remove();
+        }
+
+        const messageDiv = document.createElement("div");
+        messageDiv.className = "message received";
+        messageDiv.dataset.id = messageId;
+
+        const img = document.createElement("img");
+        img.src = fromPicture;
+        img.alt = fromName;
+
+        const contentDiv = document.createElement("div");
+        contentDiv.className = "message-content";
+
+        const textDiv = document.createElement("div");
+        textDiv.textContent = content;
+        contentDiv.appendChild(textDiv);
+
+        const timestampSpan = document.createElement("span");
+        timestampSpan.className = "timestamp";
+        timestampSpan.textContent = formatTime(timestamp);
+        contentDiv.appendChild(timestampSpan);
+
+        messageDiv.appendChild(img);
+        messageDiv.appendChild(contentDiv);
+        messagesDiv.appendChild(messageDiv);
+        messageDiv.scrollIntoView({ behavior: "smooth" });
+      }
+
+      function addReceivedMessage(
+        fromId,
+        fromName,
+        fromPicture,
+        content,
+        timestamp,
+        messageId
+      ) {
+        // Only show message UI if we're chatting with this person
+        if (currentPartner === fromId) {
+          addReceivedMessageToDOM(
+            messageId,
+            fromName,
+            fromPicture,
+            content,
+            timestamp
+          );
+        }
+      }
+
+      // Initialize
+      window.addEventListener("load", () => {
+        connectWebSocket();
+
+        // Request notification permission
+        if (
+          Notification &&
+          Notification.permission !== "granted" &&
+          Notification.permission !== "denied"
+        ) {
+          Notification.requestPermission();
+        }
+      });
     </script>
   </body>
 </html>

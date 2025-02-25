@@ -6,15 +6,11 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
     margin-left: auto;
     font-size: 0.8rem;
-  }
-
-  .notifications-container {
-    display: none;
   }
 
   .user-list {
@@ -31,6 +27,7 @@
     transition: all 0.3s ease;
     display: flex;
     align-items: center;
+    position: relative;
   }
 
   .user-item:hover {
@@ -42,10 +39,6 @@
     color: white;
   }
 
-  .user-item.active .user-pic {
-    border-color: white;
-  }
-
   .user-pic {
     width: 32px;
     height: 32px;
@@ -54,96 +47,37 @@
     border: 2px solid #ddd;
   }
 
-  .user-status {
+  .online-status {
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    margin-left: auto;
+    margin-left: 8px;
+  }
+
+  .online-status.online {
     background-color: #4caf50;
   }
 
-  .self-section {
-    padding: 1rem;
-    border-bottom: 1px solid var(--border-color);
-    margin-bottom: 1rem;
-  }
-  .self-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
+  .online-status.offline {
+    background-color: #f44336;
   }
 </style>
 
-<div class="online-users">
-  {{ if .Self }}
-  <div class="self-section">
-    <h4>Me</h4>
-    <div class="self-item">
-      <img
-        class="user-pic"
-        src="{{ (index .Self 0).picture }}"
-        alt="{{ (index .Self 0).name }}"
-      />
-      <span>{{ (index .Self 0).name }}</span>
-    </div>
-  </div>
+<h4>Chats</h4>
+<ul class="user-list">
+  {{ range .AllUsers }}
+  <li
+    class="user-item"
+    data-id="{{ .id }}"
+    onclick="selectUser('{{ .id }}', '{{ .name }}')"
+  >
+    <img class="user-pic" src="{{ .picture }}" alt="{{ .name }}" />
+    <span>{{ .name }}</span>
+    <div class="unread-badge" data-user="{{ .id }}"></div>
+    <div
+      class="online-status {{ if .online }}online{{ else }}offline{{ end }}"
+    ></div>
+  </li>
   {{ end }}
-
-  <h4>Online Users</h4>
-  <ul class="user-list">
-    {{ range .Others }}
-    <li
-      class="user-item"
-      data-id="{{ .id }}"
-      onclick="selectUser('{{ .id }}', '{{ .name }}')"
-    >
-      <img class="user-pic" src="{{ .picture }}" alt="{{ .name }}" />
-      <span>{{ .name }}</span>
-      <div class="unread-badge" data-user="{{ .id }}"></div>
-    </li>
-    {{ end }}
-  </ul>
-</div>
-
-<script>
-  // Fetch the user list and display names
-  document.addEventListener("DOMContentLoaded", function () {
-    fetch("/users")
-      .then((response) => response.json())
-      .then((users) => {
-        const userList = document.getElementById("user-list");
-        userList.innerHTML = ""; // Clear any existing content
-        users.forEach((user) => {
-          const li = document.createElement("li");
-          li.textContent = user.name;
-          li.className = "user-item";
-          li.dataset.id = user.id;
-          li.onclick = () => selectUser(user.id, user.name);
-          userList.appendChild(li);
-        });
-      });
-  });
-
-  // WebSocket for user-list updates
-  const userListSocket = new WebSocket("ws://" + window.location.host + "/ws");
-  userListSocket.addEventListener("message", function (event) {
-    if (event.data === "users-update") {
-      // Reload the user list
-      fetch("/users")
-        .then((response) => response.json())
-        .then((users) => {
-          const userList = document.getElementById("user-list");
-          userList.innerHTML = "";
-          users.forEach((user) => {
-            const li = document.createElement("li");
-            li.textContent = user.name;
-            li.className = "user-item";
-            li.dataset.id = user.id;
-            li.onclick = () => selectUser(user.id, user.name);
-            userList.appendChild(li);
-          });
-        });
-    }
-  });
-</script>
+</ul>
 {{ end }}
