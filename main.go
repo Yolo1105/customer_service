@@ -10,7 +10,7 @@ import (
     "log"
     "net/http"
     "os"
-    "runtime" // 添加 runtime 包
+    "runtime"
     "strings"
     "sync"
     "time"
@@ -208,7 +208,6 @@ func main() {
         fmt.Fprintln(w, "<p><a href='/logout'>Logout</a></p>")
     })
 
-
     // 启动清理任务
     go cleanupSessions()
 
@@ -230,10 +229,10 @@ func cleanupSessions() {
         
         // 检查长时间不活跃的连接
         clients.Lock()
-        for id, _ := range clients.connections {
-            // 从数据库检查用户最后活动时间
+        for id := range clients.connections {
+            // 尝试从数据库检查用户最后活动时间，忽略错误
             var lastLogin time.Time
-            err := db.QueryRow("SELECT last_login FROM users WHERE google_id = ?", id).Scan(&lastLogin)
+            err := db.QueryRow("SELECT COALESCE(last_login, CURRENT_TIMESTAMP) FROM users WHERE google_id = ?", id).Scan(&lastLogin)
             if err == nil && time.Since(lastLogin) > 2*time.Hour {
                 // 如果用户超过2小时没有活动，关闭连接
                 if conn, ok := clients.connections[id]; ok {
@@ -266,12 +265,32 @@ func InitDB() *sql.DB {
         email TEXT UNIQUE NOT NULL,
         name TEXT NOT NULL,
         picture TEXT,
-        registered INTEGER DEFAULT 0,
-        last_login DATETIME
+        registered INTEGER DEFAULT 0
     );
     `
     if _, err := db.Exec(createTableSQL); err != nil {
         log.Fatal("Failed to create users table:", err)
+    }
+
+    // 检查是否需要添加 registered 列
+    var colCount int
+    err = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='registered'").Scan(&colCount)
+    if err != nil || colCount == 0 {
+        log.Println("Adding 'registered' column to users table...")
+        _, err := db.Exec("ALTER TABLE users ADD COLUMN registered INTEGER DEFAULT 0")
+        if err != nil {
+            log.Printf("Error adding registered column: %v", err)
+        }
+    }
+
+    // 检查是否需要添加 last_login 列
+    err = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='last_login'").Scan(&colCount)
+    if err != nil || colCount == 0 {
+        log.Println("Adding 'last_login' column to users table...")
+        _, err := db.Exec("ALTER TABLE users ADD COLUMN last_login DATETIME")
+        if err != nil {
+            log.Printf("Error adding last_login column: %v", err)
+        }
     }
 
     // 消息表创建
@@ -287,21 +306,6 @@ func InitDB() *sql.DB {
     `
     if _, err := db.Exec(createMessagesTable); err != nil {
         log.Fatal("Failed to create messages table:", err)
-    }
-
-    // 添加status字段（如果不存在）
-    _, err = db.Exec("ALTER TABLE messages ADD COLUMN status TEXT DEFAULT 'sent';")
-    // 忽略错误，列可能已存在
-
-    // 检查是否需要添加 registered 列
-    var colCount int
-    err = db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='registered'").Scan(&colCount)
-    if err != nil || colCount == 0 {
-        log.Println("Adding 'registered' column to users table...")
-        _, err := db.Exec("ALTER TABLE users ADD COLUMN registered INTEGER DEFAULT 0")
-        if err != nil {
-            log.Printf("Error adding registered column: %v", err)
-        }
     }
 
     // 添加session表
@@ -356,7 +360,6 @@ func loadOAuthConfig() {
     }
 }
 
-
 // 主页处理
 func indexHandler(w http.ResponseWriter, r *http.Request) {
     if r.URL.Path != "/" {
@@ -381,7 +384,6 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
     
     http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
-
 
 // 错误处理函数
 func renderErrorPage(w http.ResponseWriter, title, message string, code int, returnURL, buttonText string) {
@@ -429,7 +431,6 @@ func loginPageHandler(w http.ResponseWriter, r *http.Request) {
     })
 }
 
-
 // 注册页面处理
 func registerPageHandler(w http.ResponseWriter, r *http.Request) {
     googleID := getGoogleID(r)
@@ -476,8 +477,21 @@ func registerPageHandler(w http.ResponseWriter, r *http.Request) {
             )
             if err != nil {
                 log.Println("Error updating user:", err)
-                http.Error(w, "Registration failed", http.StatusInternalServerError)
-                return
+                // 检查是否是列不存在的错误，如果是，尝试不更新last_login
+                if strings.Contains(err.Error(), "last_login") {
+                    _, err = db.Exec(
+                        "UPDATE users SET name = ?, registered = 1 WHERE google_id = ?",
+                        displayName, googleID,
+                    )
+                    if err != nil {
+                        log.Println("Error updating user (simplified):", err)
+                        http.Error(w, "Registration failed", http.StatusInternalServerError)
+                        return
+                    }
+                } else {
+                    http.Error(w, "Registration failed", http.StatusInternalServerError)
+                    return
+                }
             }
             
             // 创建新会话，标记为已登录
@@ -497,7 +511,6 @@ func registerPageHandler(w http.ResponseWriter, r *http.Request) {
         "Picture": picture,
     })
 }
-
 
 func googleLoginHandler(w http.ResponseWriter, r *http.Request) {
     // 创建一个随机状态防止CSRF
@@ -643,33 +656,42 @@ func saveUserToDB(googleID, email, name, picture string) bool {
     if err == sql.ErrNoRows {
         // 用户不存在，插入新用户
         _, err = db.Exec(
-            "INSERT INTO users (google_id, email, name, picture, registered, last_login) VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)",
+            "INSERT INTO users (google_id, email, name, picture, registered) VALUES (?, ?, ?, ?, 0)",
             googleID, email, name, picture,
         )
         if err != nil {
             log.Println("❌ Failed to save new user:", err)
         }
+        // 尝试更新last_login，忽略可能的错误
+        db.Exec("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE google_id = ?", googleID)
+
         return false
     } else if err != nil {
         log.Println("❌ Error checking user registration:", err)
         // 如果发生错误，尝试插入用户
         _, err = db.Exec(
-            "INSERT OR REPLACE INTO users (google_id, email, name, picture, registered, last_login) VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)",
+            "INSERT OR REPLACE INTO users (google_id, email, name, picture, registered) VALUES (?, ?, ?, ?, 0)",
             googleID, email, name, picture,
         )
         if err != nil {
             log.Println("❌ Failed to save user:", err)
         }
+        // 尝试更新last_login，忽略可能的错误
+        db.Exec("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE google_id = ?", googleID)
+
         return false
     } else {
         // 用户已存在，更新信息
         _, err = db.Exec(
-            "UPDATE users SET email = ?, picture = ?, last_login = CURRENT_TIMESTAMP WHERE google_id = ?",
+            "UPDATE users SET email = ?, picture = ? WHERE google_id = ?",
             email, picture, googleID,
         )
         if err != nil {
             log.Println("❌ Failed to update user:", err)
         }
+        // 尝试更新last_login，忽略可能的错误
+        db.Exec("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE google_id = ?", googleID)
+
         return registered == 1
     }
 }
@@ -780,7 +802,7 @@ func onlineUsersHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 更新用户最后活动时间
+    // 尝试更新最后活动时间，忽略可能的错误
     db.Exec("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE google_id = ?", currentUserID)
 
     // 获取当前用户信息
@@ -909,7 +931,7 @@ func chatHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // 更新最后活动时间
+    // 尝试更新最后活动时间，忽略可能的错误
     db.Exec("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE google_id = ?", googleID)
 
     templates.ExecuteTemplate(w, "chat.html", map[string]interface{}{
@@ -1352,7 +1374,6 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(messages)
 }
 
-
 // 手动注册处理函数
 func manualRegisterHandler(w http.ResponseWriter, r *http.Request) {
     if r.Method == "GET" {
@@ -1451,7 +1472,7 @@ func manualRegisterHandler(w http.ResponseWriter, r *http.Request) {
         
         // 保存用户到数据库
         _, err := db.Exec(
-            "INSERT INTO users (google_id, email, name, picture, registered, last_login) VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)",
+            "INSERT INTO users (google_id, email, name, picture, registered) VALUES (?, ?, ?, ?, 1)",
             googleID, email, name, "/static/default-avatar.png",
         )
         
@@ -1460,6 +1481,9 @@ func manualRegisterHandler(w http.ResponseWriter, r *http.Request) {
             http.Error(w, "Registration failed. Please try again.", http.StatusInternalServerError)
             return
         }
+        
+        // 尝试更新last_login，忽略可能的错误
+        db.Exec("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE google_id = ?", googleID)
         
         // 设置cookie和会话
         http.SetCookie(w, &http.Cookie{
