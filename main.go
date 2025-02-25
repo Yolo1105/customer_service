@@ -208,6 +208,17 @@ func main() {
         fmt.Fprintln(w, "<p><a href='/logout'>Logout</a></p>")
     })
 
+    // 添加定期刷新机制，确保用户在线状态同步
+    go func() {
+        ticker := time.NewTicker(10 * time.Second)
+        defer ticker.Stop()
+        
+        for range ticker.C {
+            // 每10秒广播一次用户状态更新
+            broadcastUserListUpdate()
+        }
+    }()
+
     // 启动清理任务
     go cleanupSessions()
 
@@ -696,15 +707,41 @@ func saveUserToDB(googleID, email, name, picture string) bool {
     }
 }
 
+// 增强版的用户列表更新广播函数
 func broadcastUserListUpdate() {
+    // 获取所有用户的ID和在线状态
     clients.RLock()
-    defer clients.RUnlock()
-    message := []byte("users-update")
+    onlineUsers := make(map[string]bool)
+    for id := range clients.connections {
+        onlineUsers[id] = true
+    }
+    clients.RUnlock()
+
+    // 通过WebSocket通知所有用户，包括用户列表完整信息
+    message := map[string]interface{}{
+        "type": "users_update",
+        "online_users": onlineUsers,
+        "timestamp": time.Now().Unix(),
+    }
+    
+    messageJSON, err := json.Marshal(message)
+    if err != nil {
+        log.Printf("Error marshaling users update: %v", err)
+        return
+    }
+    
+    // 发送给所有连接的客户端
+    clients.RLock()
     for _, conn := range clients.connections {
-        if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
-            continue // 忽略错误，继续发送给其他用户
+        err := conn.WriteMessage(websocket.TextMessage, messageJSON)
+        if err != nil {
+            log.Printf("Error sending users update: %v", err)
+            // 继续向其他用户发送
         }
     }
+    clients.RUnlock()
+    
+    log.Printf("Broadcasted user list update to %d clients", len(clients.connections))
 }
 
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
@@ -976,6 +1013,8 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
     conn.SetReadLimit(4096) // 限制消息大小
     conn.SetReadDeadline(time.Now().Add(120 * time.Second))
 
+    log.Printf("New WebSocket connection from user: %s", googleID)
+
     // 管理连接
     clients.Lock()
     // 关闭可能的旧连接
@@ -1147,13 +1186,17 @@ func handleChatMessageFast(conn *websocket.Conn, senderID string, msg map[string
             }
             
             // 更新消息状态为已送达
-            db.Exec("UPDATE messages SET status = 'delivered' WHERE id = ?", messageID)
+            _, err := db.Exec("UPDATE messages SET status = 'delivered' WHERE id = ?", messageID)
+            if err != nil {
+                log.Printf("Error updating message status to delivered: %v", err)
+            }
             
             // 通知发送者消息已送达
             deliveredMsg := map[string]interface{}{
                 "type":      "status_update",
                 "messageId": messageID,
                 "fromId":    receiverID,
+                "toId":      senderID,  // 添加接收者ID，以便发送者知道是哪个会话
                 "status":    "delivered",
             }
             
@@ -1236,21 +1279,30 @@ func handleStatusUpdateFast(conn *websocket.Conn, senderID string, msg map[strin
         return nil
     }
     
-    // 通知消息发送者
-    clients.RLock()
-    receiverConn, receiverOnline := clients.connections[receiverID]
-    clients.RUnlock()
+    // 创建状态更新消息
+    statusMsg := map[string]interface{}{
+        "type":      "status_update",
+        "messageId": messageID,
+        "fromId":    senderID,
+        "toId":      receiverID,
+        "status":    status,
+    }
     
-    if receiverOnline {
-        statusMsg := map[string]interface{}{
-            "type":      "status_update",
-            "messageId": messageID,
-            "fromId":    senderID,
-            "status":    status,
-        }
-        
+    // 通知消息发送者(原始发送者)
+    clients.RLock()
+    if receiverConn, receiverOnline := clients.connections[receiverID]; receiverOnline {
         receiverConn.WriteJSON(statusMsg)
     }
+    clients.RUnlock()
+    
+    // 返回确认给当前用户
+    statusAckMsg := map[string]interface{}{
+        "type":      "status_ack",
+        "messageId": messageID,
+        "status":    status,
+        "success":   true,
+    }
+    conn.WriteJSON(statusAckMsg)
     
     return nil
 }
@@ -1361,6 +1413,7 @@ func messagesHandler(w http.ResponseWriter, r *http.Request) {
                         "type":      "status_update",
                         "messageId": id,
                         "fromId":    currentUserID,
+                        "toId":      partnerID,
                         "status":    "read",
                     }
                     conn.WriteJSON(readReceipt)
